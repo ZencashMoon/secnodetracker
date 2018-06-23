@@ -7,8 +7,8 @@ const Zcash = require('zcash');
 
 let host = local.getItem('rpchost') || local.getItem('rpcbind');
 if (!host) host = 'localhost';
-const TADDR = process.env.PRIMARY_T_ADDR;
-const ZADDR = process.env.CHALLENGE_Z_ADDR;
+const TADDR = local.getItem('taddr');
+const ZADDR = local.getItem('zaddr');
 
 const cfg = {
   host: host,
