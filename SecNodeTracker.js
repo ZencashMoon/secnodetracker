@@ -7,6 +7,8 @@ const Zcash = require('zcash');
 
 let host = local.getItem('rpchost') || local.getItem('rpcbind');
 if (!host) host = 'localhost';
+const TADDR = process.env.PRIMARY_T_ADDR;
+const ZADDR = process.env.CHALLENGE_Z_ADDR;
 
 const cfg = {
   host: host,
@@ -91,7 +93,7 @@ class SecNode {
         }
       }
       self.waiting = false;
-      return cb(null, data[0]);
+      return cb(null, TADDR);
     });
   }
 
@@ -111,29 +113,15 @@ class SecNode {
               console.log("No private address found. Please create one using 'zen-cli z_getnewaddress' and send at least 1 ZEN for challenges split into 4 or more transactions");
               return cb(null)
             }
-            let called = false;
-            let addrbal;
-            let count = 0;
-            for (let i = 0; i < results.length; i++) {
-              const addr = results[i];
-              self.zenrpc.z_getbalance(addr)
-                .then((bal) => {
-                  return { addr, bal }
-                })
-                .then((addrbal) => {
-                  count++;
-                  if (addrbal.bal > .001 && !called) {
-                    called = true;
-                    cb(null, { "addr": addrbal.addr, "bal": addrbal.bal, "valid": valid, "lastChalBlock": lastChalBlockNum });
-                  }
-                  if (count === results.length && !called) {
-                    cb(null, { "addr": addrbal.addr, "bal": addrbal.bal, "valid": valid, "lastChalBlock": lastChalBlockNum });
-                  }
-                })
-                .catch(err => {
-                  console.error("Error: zen z_getbalance ", err);
-                });
-            }
+
+            const addr = ZADDR;
+            self.zenrpc.z_getbalance(addr)
+              .then((bal) => {
+                cb(null, {addr, bal, valid, "lastChalBlock": lastChalBlockNum });
+              })
+              .catch(err => {
+                console.error("Error: zen z_getbalance ", err);
+              });
           })
           .catch(err => {
             console.error("Error: zen z_listaddresses ", err);
@@ -226,7 +214,7 @@ class SecNode {
         let elapsed = (((new Date()) - self.chalStart) / 1000).toFixed(0);
         if (operation.length == 0) {
           if (elapsed < 12) return
-          // if here then operation lost or unavailable. 
+          // if here then operation lost or unavailable.
           self.chalRunning = false;
           let resp = { "crid": chal.crid, "status": "failed", "error": "No operation found." }
           resp.ident = self.ident;
