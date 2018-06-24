@@ -144,62 +144,81 @@ class SecNode {
       return
     }
 
-    if (os == 'linux') self.memBefore = self.getProcMeminfo(false);
-    self.crid = chal.crid
-    self.corerpc.getBlockHash(chal.blocknum, (err, hash) => {
+    self.zenrpc.z_getoperationstatus()
+      .then(ops=>{
+        let pendingCount = ops.filter(o => o.status === "executing" || o.status === "queued").length;
+        if (pendingCount > 0) {
+          console.log(logtime(), "Challenge ErrorX: zend is busy.");
+          //cheat tracking server
+          let resp = { "crid": chal.crid, "status": "error", "error": "no available balance found or 0" }
+          resp.ident = self.ident;
+          self.socket.emit("chalresp", resp);
+          return;
+        }
 
-      if (err) {
-        let resp = { "crid": chal.crid, "status": "failed", "error": "unable to get blockhash from zen" }
-        self.chalRunning = false;
-        resp.ident = self.ident;
-        self.socket.emit("chalresp", resp);
-        console.error(logtime(), `Challenge Error: unable to get blockhash for challenge id ${chal.crid} block ${chal.blocknum}`);
-        if (!self.zenDownTimer) self.zenDownTimer = setInterval(self.zenDownLoop, self.zenDownInterval);
-        return
-      }
-      if (self.zenDownTimer) clearInterval(self.zenDownTimer);
-
-      self.corerpc.getBlock(hash, (err, block) => {
-
-        let msgBuff = new Buffer.from(block.merkleroot);
-        let amts = [{ "address": chal.sendto, "amount": self.amt, "memo": msgBuff.toString('hex') }];
-
-        self.getAddrWithBal((err, result) => {
-          if (err) return console.error(err);
-
-          let zaddr = result.addr;
-          if (result.bal == 0) {
-            console.log(logtime(), "Challenge private address balance is 0 at the moment. Cannot perform challenge");
+        if (os == 'linux') self.memBefore = self.getProcMeminfo(false);
+        self.crid = chal.crid
+        self.corerpc.getBlockHash(chal.blocknum, (err, hash) => {
+          if (err) {
+            let resp = { "crid": chal.crid, "status": "failed", "error": "unable to get blockhash from zen" }
+            self.chalRunning = false;
+            resp.ident = self.ident;
+            self.socket.emit("chalresp", resp);
+            console.error(logtime(), `Challenge Error: unable to get blockhash for challenge id ${chal.crid} block ${chal.blocknum}`);
+            if (!self.zenDownTimer) self.zenDownTimer = setInterval(self.zenDownLoop, self.zenDownInterval);
+            return
           }
-          console.log('Using ' + zaddr + ' for challenge. bal=' + result.bal)
-          if (zaddr && result.bal > 0) {
-            self.zenrpc.z_sendmany(zaddr, amts, 1, self.fee)
-              .then(opid => {
-                console.log("OperationId=" + opid);
-                self.chalStart = new Date();
-                self.chalRunning = true;
-                self.opTimer = setInterval(() => {
-                  self.checkOp(opid, chal);
-                }, self.opTimerInterval);
-                return
-              })
-              .catch(err => {
-                let resp = { "crid": chal.crid, "status": "error", "error": 'unable to create transaction' }
+          if (self.zenDownTimer) clearInterval(self.zenDownTimer);
+
+          self.corerpc.getBlock(hash, (err, block) => {
+
+            let msgBuff = new Buffer.from(block.merkleroot);
+            let amts = [{ "address": chal.sendto, "amount": self.amt, "memo": msgBuff.toString('hex') }];
+
+            self.getAddrWithBal((err, result) => {
+              if (err) return console.error(err);
+
+              let zaddr = result.addr;
+              if (result.bal == 0) {
+                console.log(logtime(), "Challenge private address balance is 0 at the moment. Cannot perform challenge");
+              }
+              console.log('Using ' + zaddr + ' for challenge. bal=' + result.bal)
+              if (zaddr && result.bal > 0) {
+                self.zenrpc.z_sendmany(zaddr, amts, 1, self.fee)
+                  .then(opid => {
+                    console.log("OperationId=" + opid);
+                    self.chalStart = new Date();
+                    self.chalRunning = true;
+                    self.opTimer = setInterval(() => {
+                      self.checkOp(opid, chal);
+                    }, self.opTimerInterval);
+                    return
+                  })
+                  .catch(err => {
+                    let resp = { "crid": chal.crid, "status": "error", "error": 'unable to create transaction' }
+                    resp.ident = self.ident;
+                    console.error(logtime(), "Challenge: unable to create and send transaction.");
+                    console.error(err);
+                    self.socket.emit("chalresp", resp)
+                  }
+                  );
+              } else {
+                let resp = { "crid": chal.crid, "status": "error", "error": "no available balance found or 0" }
                 resp.ident = self.ident;
-                console.error(logtime(), "Challenge: unable to create and send transaction.");
-                console.error(err);
+                console.log("challenge: unable to find address with balance or balance 0.");
                 self.socket.emit("chalresp", resp)
               }
-              );
-          } else {
-            let resp = { "crid": chal.crid, "status": "error", "error": "no available balance found or 0" }
-            resp.ident = self.ident;
-            console.log("challenge: unable to find address with balance or balance 0.");
-            self.socket.emit("chalresp", resp)
-          }
+            });
+          });
         });
+      }).catch(err => {
+        console.log(logtime(), "Challenge ErrorX: z_getoperationstatus failed.");
+        //cheat tracking server
+        let resp = { "crid": chal.crid, "status": "error", "error": "no available balance found or 0" }
+        resp.ident = self.ident;
+        self.socket.emit("chalresp", resp);
+        return;
       });
-    })
   }
 
   checkOp(opid, chal) {
