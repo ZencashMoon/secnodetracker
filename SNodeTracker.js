@@ -171,6 +171,20 @@ class SNode {
     if (os === 'linux') self.memBefore = self.getProcMeminfo(false);
     self.crid = chal.crid;
     self.rpc.getblockhash(chal.blocknum)
+      .then(hash => self.rpc.z_getoperationstatus()
+        .then((ops) => {
+          const pendingCount = ops.filter(o => o.status === 'executing' || o.status === 'queued').length;
+          if (pendingCount > 0) {
+            console.log(logtime(), 'Challenge ErrorX: zend is busy.');
+            const resp = { crid: chal.crid, status: 'error', error: 'no available balance found or 0' };
+            resp.ident = self.ident;
+            self.socket.emit('chalresp', resp);
+
+            throw new Error('ErrorX');
+          } else {
+            return hash;
+          }
+        }))
       .then((hash) => {
         self.queueCount = 0;
         /*
@@ -233,6 +247,11 @@ class SNode {
               }
             });
           });
+      })
+      .catch((err) => {
+        if (err.message !== 'ErrorX') {
+          throw err;
+        }
       })
       .catch(err => rpcError(err, 'get block hash for challenge', (errmsg, errtype) => {
         const resp = { crid: chal.crid, status: 'failed' };
