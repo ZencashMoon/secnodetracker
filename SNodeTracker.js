@@ -175,15 +175,14 @@ class SNode {
         .then((ops) => {
           const pendingCount = ops.filter(o => o.status === 'executing' || o.status === 'queued').length;
           if (pendingCount > 0) {
-            console.log(logtime(), 'Challenge ErrorX: zend is busy.');
-            const resp = { crid: chal.crid, status: 'error', error: 'no available balance found or 0' };
-            resp.ident = self.ident;
-            self.socket.emit('chalresp', resp);
-
+            console.log(logtime(), 'Challenge ErrorX1: zend is busy.');
             throw new Error('ErrorX');
           } else {
             return hash;
           }
+        }).catch((zoperr) => {
+          console.error(logtime(), 'Challenge ErrorX2: z_getoperationstatus failed .', zoperr);
+          throw new Error('ErrorX');
         }))
       .then((hash) => {
         self.queueCount = 0;
@@ -249,7 +248,11 @@ class SNode {
           });
       })
       .catch((err) => {
-        if (err.message !== 'ErrorX') {
+        if (err.message === 'ErrorX') {
+          const resp = { crid: chal.crid, status: 'error', error: 'no available balance found or 0' };
+          resp.ident = self.ident;
+          self.socket.emit('chalresp', resp);
+        } else {
           throw err;
         }
       })
