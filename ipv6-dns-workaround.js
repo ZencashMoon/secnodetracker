@@ -1,4 +1,4 @@
-'use strict';
+const dns = require('dns');
 
 const dns = require('dns'), {lookup} = dns;
 dns.lookup = function(name, opts, cb) {
