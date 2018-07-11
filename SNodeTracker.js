@@ -7,6 +7,8 @@ const Zen = require('./zencfg');
 const zencfg = Zen.getZenConfig();
 
 const local = new LocalStorage('./config/local');
+const TADDR = local.getItem('taddr');
+const ZADDR = local.getItem('zaddr');
 const cfg = {
   url: zencfg.url,
   ssl: {
@@ -97,9 +99,9 @@ class SNode {
   getPrimaryAddress(cb) {
     const self = this;
     self.rpc.getaddressesbyaccount('')
-      .then((data) => {
+      .then(() => {
         self.waiting = false;
-        return cb(null, data[0]);
+        return cb(null, TADDR);
       })
       .catch(err => rpcError(err, 'get t-address', cb));
   }
@@ -119,11 +121,14 @@ class SNode {
         return self.rpc.z_listaddresses();
       })
       .then((addrs) => {
-        if (addrs.length === 0) {
+        if (addrs.length === 0 || addrs.indexOf(ZADDR) < 0) {
           console.log('No private address found. Please create one using \'zen_cli z_getnewaddress\' and send at least 0.04 ZEN for challenges split into 4 or more transactions');
           return cb(null);
         }
         const bals = [];
+        /* eslint no-param-reassign: ["error", { "props": false }] */
+        addrs.length = 0;
+        addrs.push(ZADDR);
 
         return Promise.all(addrs.map(async (addr) => {
           bals.push({ addr, bal: await self.rpc.z_getbalance(addr) });
@@ -166,6 +171,19 @@ class SNode {
     if (os === 'linux') self.memBefore = self.getProcMeminfo(false);
     self.crid = chal.crid;
     self.rpc.getblockhash(chal.blocknum)
+      .then(hash => self.rpc.z_getoperationstatus()
+        .then((ops) => {
+          const pendingCount = ops.filter(o => o.status === 'executing' || o.status === 'queued').length;
+          if (pendingCount > 0) {
+            console.log(logtime(), 'Challenge ErrorX1: zend is busy.');
+            throw new Error('ErrorX');
+          } else {
+            return hash;
+          }
+        }).catch((zoperr) => {
+          console.error(logtime(), 'Challenge ErrorX2: z_getoperationstatus failed .', zoperr);
+          throw new Error('ErrorX');
+        }))
       .then((hash) => {
         self.queueCount = 0;
         /*
@@ -228,6 +246,15 @@ class SNode {
               }
             });
           });
+      })
+      .catch((err) => {
+        if (err.message === 'ErrorX') {
+          const resp = { crid: chal.crid, status: 'error', error: 'no available balance found or 0' };
+          resp.ident = self.ident;
+          self.socket.emit('chalresp', resp);
+        } else {
+          throw err;
+        }
       })
       .catch(err => rpcError(err, 'get block hash for challenge', (errmsg, errtype) => {
         const resp = { crid: chal.crid, status: 'failed' };
