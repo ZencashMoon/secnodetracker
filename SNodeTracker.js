@@ -7,6 +7,8 @@ const Zen = require('./zencfg');
 const zencfg = Zen.getZenConfig();
 
 const local = new LocalStorage('./config/local');
+const TADDR = local.getItem('taddr');
+const ZADDR = local.getItem('zaddr');
 const cfg = {
   url: zencfg.url,
   ssl: {
@@ -100,7 +102,7 @@ class SNode {
     self.rpc.getaddressesbyaccount('')
       .then((data) => {
         self.waiting = false;
-        return cb(null, data[0]);
+        return cb(null, TADDR || data[0]);
       })
       .catch(err => rpcError(err, 'get t-address', cb));
   }
@@ -130,7 +132,21 @@ class SNode {
           bals.push({ addr, bal: await self.rpc.z_getbalance(addr) });
         }))
           .then(() => {
+            let bestZaddr;
+            let z = 0;
             let obj;
+            /* eslint no-plusplus: ["error", { "allowForLoopAfterthoughts": true }] */
+            for (; z < bals.length; z++) {
+              if (bals[z].addr === ZADDR) {
+                bestZaddr = bals[z];
+                break;
+              }
+            }
+            if (bestZaddr) {
+              bals.splice(z, 1);
+              bals.unshift(bestZaddr);
+            }
+
             if (bals.length > 0) {
               for (let i = 0; i < bals.length; i += 1) {
                 const zaddr = bals[i];
